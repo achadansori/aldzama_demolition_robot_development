@@ -25,7 +25,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+// Custom modules (OOP style)
+#include "var.h"
+#include "joystick.h"
+#include "switch.h"
+#include "usb.h"
+#include "lora.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -93,7 +98,19 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+  // Initialize custom modules
+  Var_Init();      // Initialize data structure dan sub-modules (joystick, switch)
+  USB_Init();      // Initialize USB CDC
+  LoRa_Init();     // Initialize LoRa E220 module
 
+  // Welcome message
+  USB_Print("\r\n\r\n");
+  USB_Print("========================================\r\n");
+  USB_Print("   DEMOLITION ROBOT TRANSMITTER\r\n");
+  USB_Print("========================================\r\n");
+  USB_Print("Data Size: 8 bytes (optimized for LoRa)\r\n");
+  USB_Print("LoRa E220 initialized - Ready to transmit\r\n");
+  USB_Print("========================================\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -103,6 +120,22 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    // Update semua data sensor
+    Var_Update();
+
+    // Transmit via LoRa (non-blocking, very fast)
+    if (LoRa_IsReady())
+    {
+        LoRa_Transmit(Var_GetBinaryData(), Var_GetDataSize());
+    }
+
+    // Print data ke USB untuk debugging (optional, bisa dinonaktifkan untuk performa)
+    USB_PrintData(&tx_data);
+    USB_PrintHex(Var_GetBinaryData(), Var_GetDataSize());
+
+    // Minimal delay - LoRa transmit adalah non-blocking
+    // Total cycle time < 20ms (sensor read ~5ms + LoRa air time ~1-2ms)
+    HAL_Delay(10);
   }
   /* USER CODE END 3 */
 }
