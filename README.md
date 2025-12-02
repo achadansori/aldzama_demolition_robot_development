@@ -283,10 +283,10 @@ See `LICENSE` files in respective driver directories for third-party component l
 
 ## 📞 Support
 
-For questions and support, contact Aldzama team.
+For questions and support, contact Demolition
 
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2024  
+**Last Updated**: 2025  
 **Status**: Active Development
