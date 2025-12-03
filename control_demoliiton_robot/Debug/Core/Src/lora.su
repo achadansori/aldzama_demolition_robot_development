@@ -1,7 +1,9 @@
-../Core/Src/lora.c:57:22:LoRa_ConfigureModule	24	static
-../Core/Src/lora.c:102:15:LoRa_Init	8	static
-../Core/Src/lora.c:124:6:LoRa_SetMode	16	static
-../Core/Src/lora.c:161:15:LoRa_StartReceive	8	static
-../Core/Src/lora.c:188:6:LoRa_RegisterRxCallback	16	static
-../Core/Src/lora.c:197:10:LoRa_GetLastRxTime	4	static
-../Core/Src/lora.c:206:6:LoRa_HasNewData	4	static
+../Core/Src/lora.c:62:16:LoRa_CalculateChecksum	24	static
+../Core/Src/lora.c:77:13:LoRa_SetMode	16	static
+../Core/Src/lora.c:109:6:LoRa_Receiver_Init	24	static
+../Core/Src/lora.c:137:6:LoRa_Receiver_Configure	24	static
+../Core/Src/lora.c:191:6:LoRa_Receiver_StartListening	8	static
+../Core/Src/lora.c:204:6:LoRa_Receiver_IsDataAvailable	4	static
+../Core/Src/lora.c:214:6:LoRa_Receiver_GetData	16	static
+../Core/Src/lora.c:236:6:LoRa_Receiver_IRQHandler	16	static
+../Core/Src/lora.c:310:13:LoRa_ParseBinaryPacket	16	static

@@ -2,17 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : LoRa Receiver Main Program (STM32F401CCU6)
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -20,14 +10,16 @@
 #include "main.h"
 #include "i2s.h"
 #include "spi.h"
-#include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "lora.h"
+#include "usbd_cdc_if.h"
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,7 +40,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+LoRa_ReceivedData_t lora_data;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +51,19 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/**
+  * @brief  UART receive complete callback
+  * @param  huart: UART handle
+  * @retval None
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        LoRa_Receiver_IRQHandler();
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -95,12 +100,72 @@ int main(void)
   MX_SPI1_Init();
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
-  MX_TIM1_Init();
-  MX_TIM2_Init();
-  MX_TIM3_Init();
-  MX_TIM4_Init();
-  MX_TIM8_Init();
   /* USER CODE BEGIN 2 */
+
+  // Initialize M0 and M1 pins for LoRa configuration
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_5;  // PE4=M0, PE5=M1
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  // Initialize LoRa receiver
+  LoRa_Receiver_Init(&huart1, GPIOE, GPIO_PIN_4, GPIOE, GPIO_PIN_5);
+
+  // Wait for USB to be ready (reduced from 2000ms)
+  HAL_Delay(1000);
+
+  // Send startup message to USB
+  char *startup_msg = "\r\n=================================\r\n";
+  CDC_Transmit_FS((uint8_t*)startup_msg, strlen(startup_msg));
+  HAL_Delay(20);
+
+  char *title_msg = "   LoRa Receiver Started\r\n";
+  CDC_Transmit_FS((uint8_t*)title_msg, strlen(title_msg));
+  HAL_Delay(20);
+
+  char *port_msg = "   STM32F401CCU6 - UART1\r\n";
+  CDC_Transmit_FS((uint8_t*)port_msg, strlen(port_msg));
+  HAL_Delay(20);
+
+  char *pin_msg = "   RX: PA10 | TX: PA9\r\n";
+  CDC_Transmit_FS((uint8_t*)pin_msg, strlen(pin_msg));
+  HAL_Delay(20);
+
+  char *end_msg = "=================================\r\n\r\n";
+  CDC_Transmit_FS((uint8_t*)end_msg, strlen(end_msg));
+  HAL_Delay(50);
+
+  // Configure LoRa module
+  char *config_msg = "Configuring LoRa...\r\n";
+  CDC_Transmit_FS((uint8_t*)config_msg, strlen(config_msg));
+
+  if (LoRa_Receiver_Configure())
+  {
+      char *success_msg = "LoRa configured successfully!\r\n\r\n";
+      CDC_Transmit_FS((uint8_t*)success_msg, strlen(success_msg));
+  }
+  else
+  {
+      char *fail_msg = "LoRa configuration failed!\r\n\r\n";
+      CDC_Transmit_FS((uint8_t*)fail_msg, strlen(fail_msg));
+  }
+
+  HAL_Delay(50);
+
+  // Send startup info
+  char *format_msg = "Format: JL:x,y,b1,b2 JR:x,y,b1,b2 POT:R8=x,R1=x SW:S0=x,S1=xx,S2=xx,S4=xx,S5=xx\r\n\r\n";
+  CDC_Transmit_FS((uint8_t*)format_msg, strlen(format_msg));
+
+  HAL_Delay(50);
+
+  char *waiting_msg = "Waiting for LoRa data...\r\n\r\n";
+  CDC_Transmit_FS((uint8_t*)waiting_msg, strlen(waiting_msg));
+  HAL_Delay(50);
+
+  // Start listening for LoRa data
+  LoRa_Receiver_StartListening();
 
   /* USER CODE END 2 */
 
@@ -111,6 +176,42 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+    // Check if new data is available
+    if (LoRa_Receiver_IsDataAvailable())
+    {
+      // Get received data
+      if (LoRa_Receiver_GetData(&lora_data))
+      {
+        // Format human-readable string (matching transmitter format)
+        char output_buffer[200];
+        int len = snprintf(output_buffer, sizeof(output_buffer),
+                           "JL:%03d,%03d,%d,%d JR:%03d,%03d,%d,%d POT:R8=%d,R1=%d SW:S0=%d,S1=%d%d,S2=%d%d,S4=%d%d,S5=%d%d\r\n",
+                           lora_data.joy_left_x,
+                           lora_data.joy_left_y,
+                           lora_data.joy_left_btn1,
+                           lora_data.joy_left_btn2,
+                           lora_data.joy_right_x,
+                           lora_data.joy_right_y,
+                           lora_data.joy_right_btn1,
+                           lora_data.joy_right_btn2,
+                           lora_data.r8,
+                           lora_data.r1,
+                           lora_data.s0,
+                           lora_data.s1_1,
+                           lora_data.s1_2,
+                           lora_data.s2_1,
+                           lora_data.s2_2,
+                           lora_data.s4_1,
+                           lora_data.s4_2,
+                           lora_data.s5_1,
+                           lora_data.s5_2);
+
+        // Forward to USB CDC (non-blocking, will drop if busy)
+        CDC_Transmit_FS((uint8_t*)output_buffer, len);
+      }
+    }
+    // No delay here - check immediately for next data
   }
   /* USER CODE END 3 */
 }

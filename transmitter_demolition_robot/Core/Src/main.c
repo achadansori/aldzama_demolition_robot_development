@@ -98,19 +98,42 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+
+  // Initialize M0 and M1 GPIO pins for LoRa (PB8=M0, PB9=M1)
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;  // PB8, PB9
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   // Initialize custom modules
   Var_Init();      // Initialize data structure dan sub-modules (joystick, switch)
   USB_Init();      // Initialize USB CDC
-  LoRa_Init();     // Initialize LoRa E220 module
+
+  // Initialize LoRa E220 module with M0=PB8, M1=PB9
+  LoRa_Init(&huart1, GPIOB, GPIO_PIN_8, GPIOB, GPIO_PIN_9);
 
   // Welcome message
   USB_Print("\r\n\r\n");
   USB_Print("========================================\r\n");
   USB_Print("   DEMOLITION ROBOT TRANSMITTER\r\n");
   USB_Print("========================================\r\n");
-  USB_Print("Data Size: 8 bytes (optimized for LoRa)\r\n");
+  USB_Print("Configuring LoRa E220...\r\n");
+
+  // Configure LoRa module
+  if (LoRa_Configure())
+  {
+      USB_Print("LoRa configured successfully!\r\n");
+  }
+  else
+  {
+      USB_Print("LoRa configuration failed!\r\n");
+  }
+
   USB_Print("LoRa E220 initialized - Ready to transmit\r\n");
   USB_Print("========================================\r\n");
+  HAL_Delay(50);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,19 +146,24 @@ int main(void)
     // Update semua data sensor
     Var_Update();
 
-    // Transmit via LoRa (non-blocking, very fast)
+    // Transmit via LoRa using BINARY format (FAST! No parsing needed)
+    // Binary is much faster than CSV - only 8 bytes, direct copy
     if (LoRa_IsReady())
     {
-        LoRa_Transmit(Var_GetBinaryData(), Var_GetDataSize());
+        LoRa_SendBinary(Var_GetBinaryData(), Var_GetDataSize());
     }
 
-    // Print data ke USB untuk debugging (optional, bisa dinonaktifkan untuk performa)
-    USB_PrintData(&tx_data);
-    USB_PrintHex(Var_GetBinaryData(), Var_GetDataSize());
+    // Print data ke USB untuk debugging (less frequently)
+    static uint8_t usb_counter = 0;
+    if (++usb_counter >= 5)  // Print USB every 5 cycles (250ms)
+    {
+        usb_counter = 0;
+        USB_PrintData(&tx_data);
+    }
 
-    // Minimal delay - LoRa transmit adalah non-blocking
-    // Total cycle time < 20ms (sensor read ~5ms + LoRa air time ~1-2ms)
-    HAL_Delay(10);
+    // Delay 50ms for fast transmission rate (20Hz update rate)
+    // Binary format is fast so we can go back to 50ms
+    HAL_Delay(50);
   }
   /* USER CODE END 3 */
 }

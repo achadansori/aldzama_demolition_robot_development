@@ -1,214 +1,335 @@
-/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : lora.c
-  * @brief          : E220-900T22D LoRa Module Driver (Receiver)
-  ******************************************************************************
-  * @attention
-  *
-  * High-performance LoRa driver for receiving data
-  * Uses DMA for non-blocking UART reception with circular buffer
-  *
-  * Pin Configuration (STM32F407):
-  * - USART1: PB6 (TX), PB7 (RX)
-  * - M0: PE4
-  * - M1: PE5
-  *
+  * @brief          : LoRa E220-900T22D Receiver with Packet Sync
+  *                   RX: PA10, TX: PA9, M0: PE4, M1: PE5
   ******************************************************************************
   */
-/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "lora.h"
-#include "gpio.h"
 #include <string.h>
-
-/* Private typedef -----------------------------------------------------------*/
-
-/* Private define ------------------------------------------------------------*/
-#define LORA_M0_PIN       GPIO_PIN_4
-#define LORA_M0_PORT      GPIOE
-#define LORA_M1_PIN       GPIO_PIN_5
-#define LORA_M1_PORT      GPIOE
-
-#define LORA_MODE_SWITCH_DELAY  2    // Minimal delay for mode switching (ms)
-#define LORA_RX_BUFFER_SIZE     LORA_PACKET_SIZE
-#define LORA_CHANNEL        23       // Channel 23 = 873.125 MHz (SAME as transmitter!)
-#define LORA_AIR_RATE       5        // Air rate index 5 = 62.5kbps (FASTEST!)
-#define LORA_UART_RATE      3        // UART 9600 baud (index 3)
-
-/* Private macro -------------------------------------------------------------*/
+#include <stdlib.h>
 
 /* Private variables ---------------------------------------------------------*/
-static uint8_t rx_buffer[LORA_RX_BUFFER_SIZE];
-static volatile bool new_data_flag = false;
-static uint32_t last_rx_timestamp = 0;
-static LoRa_RxCallback_t rx_callback = NULL;
+static UART_HandleTypeDef *huart_lora;
+static GPIO_TypeDef *M0_Port = NULL;
+static uint16_t M0_Pin = 0;
+static GPIO_TypeDef *M1_Port = NULL;
+static uint16_t M1_Pin = 0;
+static LoRa_ReceivedData_t received_data;
+
+/* Private defines -----------------------------------------------------------*/
+#define LORA_TIMEOUT        1000
+
+// Packet synchronization
+#define PACKET_HEADER1      0xAA
+#define PACKET_HEADER2      0x55
+#define PACKET_DATA_SIZE    8
+#define PACKET_TOTAL_SIZE   (2 + PACKET_DATA_SIZE + 1)  // Header(2) + Data(8) + Checksum(1)
+
+// Configuration parameters (MUST BE SAME as transmitter)
+#define LORA_ADDRESS        0x0000      // Device address
+#define LORA_CHANNEL        23          // Channel 23 = 873.125 MHz
+#define LORA_AIR_RATE       5           // Air rate 5
+#define LORA_TX_POWER       0           // 22dBm max power
+
+// Receiver state machine
+typedef enum {
+    RX_STATE_WAIT_HEADER1,
+    RX_STATE_WAIT_HEADER2,
+    RX_STATE_RECEIVING_DATA,
+    RX_STATE_WAIT_CHECKSUM
+} RxState_t;
+
+static RxState_t rx_state = RX_STATE_WAIT_HEADER1;
+static uint8_t rx_packet[PACKET_DATA_SIZE];
+static uint8_t rx_byte;
+static volatile uint8_t rx_count = 0;
+static volatile bool packet_ready = false;
 
 /* Private function prototypes -----------------------------------------------*/
-static LoRa_Status_t LoRa_ConfigureModule(void);
-
-/* Private user code ---------------------------------------------------------*/
+static void LoRa_ParseBinaryPacket(void);
+static void LoRa_SetMode(LoRa_Mode_t mode);
+static uint8_t LoRa_CalculateChecksum(const uint8_t* data, uint16_t size);
 
 /**
-  * @brief  Configure LoRa module to channel 2 with optimal settings
-  * @retval LoRa_Status_t
+  * @brief  Calculate simple XOR checksum
+  * @param  data: pointer to data buffer
+  * @param  size: size of data
+  * @retval checksum value
   */
-static LoRa_Status_t LoRa_ConfigureModule(void)
+static uint8_t LoRa_CalculateChecksum(const uint8_t* data, uint16_t size)
 {
-    uint8_t cmd[9];
+    uint8_t checksum = 0;
+    for (uint16_t i = 0; i < size; i++)
+    {
+        checksum ^= data[i];
+    }
+    return checksum;
+}
 
-    // Enter CONFIG mode (M0=0, M1=1)
-    LoRa_SetMode(LORA_MODE_CONFIG);
+/**
+  * @brief  Set LoRa module mode
+  * @param  mode: LORA_MODE_NORMAL or LORA_MODE_SLEEP
+  * @retval None
+  */
+static void LoRa_SetMode(LoRa_Mode_t mode)
+{
+    if (M0_Port == NULL || M1_Port == NULL)
+    {
+        return;
+    }
+
+    if (mode == LORA_MODE_SLEEP)
+    {
+        // M0=1, M1=1 - Configuration mode
+        HAL_GPIO_WritePin(M0_Port, M0_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(M1_Port, M1_Pin, GPIO_PIN_SET);
+    }
+    else
+    {
+        // M0=0, M1=0 - Normal mode
+        HAL_GPIO_WritePin(M0_Port, M0_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(M1_Port, M1_Pin, GPIO_PIN_RESET);
+    }
+
+    HAL_Delay(50);
+}
+
+/**
+  * @brief  Initialize LoRa receiver module
+  * @param  huart: pointer to UART handle
+  * @param  m0_port: GPIO port for M0 pin
+  * @param  m0_pin: GPIO pin for M0
+  * @param  m1_port: GPIO port for M1 pin
+  * @param  m1_pin: GPIO pin for M1
+  * @retval None
+  */
+void LoRa_Receiver_Init(UART_HandleTypeDef *huart, GPIO_TypeDef *m0_port, uint16_t m0_pin,
+                        GPIO_TypeDef *m1_port, uint16_t m1_pin)
+{
+    huart_lora = huart;
+    M0_Port = m0_port;
+    M0_Pin = m0_pin;
+    M1_Port = m1_port;
+    M1_Pin = m1_pin;
+
+    rx_state = RX_STATE_WAIT_HEADER1;
+    rx_count = 0;
+    packet_ready = false;
+    memset(rx_packet, 0, PACKET_DATA_SIZE);
+    memset(&received_data, 0, sizeof(LoRa_ReceivedData_t));
+
+    if (huart_lora != NULL && M0_Port != NULL && M1_Port != NULL)
+    {
+        // Set to normal mode
+        LoRa_SetMode(LORA_MODE_NORMAL);
+    }
+}
+
+/**
+  * @brief  Configure LoRa module with default parameters
+  * @note   MUST be called once during initialization
+  * @note   Configuration MUST BE SAME as transmitter
+  * @retval true if successful
+  */
+bool LoRa_Receiver_Configure(void)
+{
+    if (huart_lora == NULL || M0_Port == NULL || M1_Port == NULL)
+    {
+        return false;
+    }
+
+    // Enter configuration mode
+    LoRa_SetMode(LORA_MODE_SLEEP);
+
+    uint8_t cmd_buffer[11];
+
+    // Write configuration command
+    cmd_buffer[0] = 0xC0;  // Write command
+    cmd_buffer[1] = 0x00;  // Start address
+    cmd_buffer[2] = 0x08;  // Length
+
+    // ADDH - Address High byte
+    cmd_buffer[3] = (LORA_ADDRESS >> 8) & 0xFF;
+
+    // ADDL - Address Low byte
+    cmd_buffer[4] = LORA_ADDRESS & 0xFF;
+
+    // REG0 - UART: 9600bps, 8N1
+    cmd_buffer[5] = 0x62;
+
+    // REG1 - Air rate and TX power
+    cmd_buffer[6] = ((LORA_AIR_RATE & 0x07) << 5) | (LORA_TX_POWER & 0x03);
+
+    // REG2 - Channel
+    cmd_buffer[7] = LORA_CHANNEL & 0x7F;
+
+    // REG3 - RSSI enabled, FEC enabled
+    cmd_buffer[8] = 0x84;
+
+    // CRYPT - No encryption
+    cmd_buffer[9] = 0x00;
+    cmd_buffer[10] = 0x00;
+
+    // Send configuration
+    HAL_StatusTypeDef status = HAL_UART_Transmit(huart_lora, cmd_buffer, 11, LORA_TIMEOUT);
+
     HAL_Delay(100);
 
-    // Build configuration command (SAME as transmitter!)
-    // Format: 0xC0 0x00 0x06 [ADDH] [ADDL] [REG0] [REG1] [REG2] [REG3]
-    cmd[0] = 0xC0;  // Write config command
-    cmd[1] = 0x00;  // Start address
-    cmd[2] = 0x06;  // Length
-    cmd[3] = 0x00;  // ADDH (Address High) = 0x00
-    cmd[4] = 0x00;  // ADDL (Address Low) = 0x00 (Broadcast)
-
-    // REG0: UART rate (bits 7-5) + Parity (bits 4-3) + Air rate (bits 2-0)
-    // UART 9600 = 011 (0x60), Parity 8N1 = 00 (0x00), Air 62.5k = 101 (0x05)
-    cmd[5] = 0x65;  // 0110 0101 = 9600 baud + 8N1 + 62.5kbps
-
-    cmd[6] = 0xC0;  // REG1: Packet 32 bytes (11) + RSSI off (0) + Power 22dBm (00000)
-    cmd[7] = LORA_CHANNEL;  // REG2: Channel 23 (873.125 MHz) - MUST MATCH TRANSMITTER!
-    cmd[8] = 0x00;  // REG3: Default (RSSI disabled, transparent mode)
-
-    // Send configuration via polling
-    if (HAL_UART_Transmit(&huart1, cmd, 9, 1000) != HAL_OK)
-    {
-        LoRa_SetMode(LORA_MODE_NORMAL);
-        return LORA_ERROR;
-    }
-
-    // Wait for module to process
-    HAL_Delay(50);
-
-    // Return to NORMAL mode
-    LoRa_SetMode(LORA_MODE_NORMAL);
-    HAL_Delay(50);
-
-    return LORA_OK;
-}
-
-/**
-  * @brief  Initialize LoRa module for reception
-  * @retval LoRa_Status_t
-  */
-LoRa_Status_t LoRa_Init(void)
-{
-    // Configure module to channel 23 with optimal settings (same as transmitter)
-    LoRa_ConfigureModule();
-
-    // Set to Normal mode (M0=0, M1=0) for reception
+    // Return to normal mode
     LoRa_SetMode(LORA_MODE_NORMAL);
 
-    // Small delay for module stabilization
-    HAL_Delay(10);
-
-    new_data_flag = false;
-    last_rx_timestamp = 0;
-
-    return LORA_OK;  // Ready for polling receive
+    return (status == HAL_OK);
 }
 
 /**
-  * @brief  Set LoRa operating mode via M0 and M1 pins
-  * @param  mode: Operating mode
+  * @brief  Start listening for LoRa data (using interrupt)
   * @retval None
   */
-void LoRa_SetMode(LoRa_Mode_t mode)
+void LoRa_Receiver_StartListening(void)
 {
-    switch(mode)
+    if (huart_lora != NULL)
     {
-        case LORA_MODE_NORMAL:
-            // M0=0, M1=0
-            HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
-            break;
-
-        case LORA_MODE_WOR:
-            // M0=1, M1=0
-            HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
-            break;
-
-        case LORA_MODE_CONFIG:
-            // M0=0, M1=1
-            HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_SET);
-            break;
-
-        case LORA_MODE_SLEEP:
-            // M0=1, M1=1
-            HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_SET);
-            break;
+        // Start receiving data in interrupt mode (one byte at a time)
+        HAL_UART_Receive_IT(huart_lora, &rx_byte, 1);
     }
-
-    // Minimal delay for mode switching
-    HAL_Delay(LORA_MODE_SWITCH_DELAY);
 }
 
 /**
-  * @brief  Start receiving data via LoRa (polling mode - no DMA)
-  * @retval LoRa_Status_t
+  * @brief  Check if data packet is available
+  * @retval true if packet ready, false otherwise
   */
-LoRa_Status_t LoRa_StartReceive(void)
+bool LoRa_Receiver_IsDataAvailable(void)
 {
-    // Receive via UART with polling (simple, blocking)
-    // Timeout 100ms - adjust if needed
-    if (HAL_UART_Receive(&huart1, rx_buffer, LORA_RX_BUFFER_SIZE, 100) == HAL_OK)
-    {
-        // Data received successfully
-        last_rx_timestamp = HAL_GetTick();
-        new_data_flag = true;
-
-        // Call user callback if registered
-        if (rx_callback != NULL)
-        {
-            rx_callback(rx_buffer, LORA_RX_BUFFER_SIZE);
-        }
-
-        return LORA_OK;
-    }
-
-    return LORA_TIMEOUT;  // No data received
+    return packet_ready;
 }
 
 /**
-  * @brief  Register callback for received data
-  * @param  callback: Callback function pointer
+  * @brief  Get received data packet
+  * @param  data: pointer to LoRa_ReceivedData_t structure
+  * @retval true if successful, false otherwise
+  */
+bool LoRa_Receiver_GetData(LoRa_ReceivedData_t *data)
+{
+    if (!packet_ready || data == NULL)
+    {
+        return false;
+    }
+
+    // Copy data
+    memcpy(data, &received_data, sizeof(LoRa_ReceivedData_t));
+
+    // Reset flag
+    packet_ready = false;
+
+    return true;
+}
+
+/**
+  * @brief  UART receive complete callback (called by HAL)
+  * @note   This function should be called from HAL_UART_RxCpltCallback
+  * @note   Uses state machine for packet synchronization
   * @retval None
   */
-void LoRa_RegisterRxCallback(LoRa_RxCallback_t callback)
+void LoRa_Receiver_IRQHandler(void)
 {
-    rx_callback = callback;
-}
+    if (huart_lora == NULL) return;
 
-/**
-  * @brief  Get last reception timestamp
-  * @retval Timestamp in milliseconds
-  */
-uint32_t LoRa_GetLastRxTime(void)
-{
-    return last_rx_timestamp;
-}
-
-/**
-  * @brief  Check if new data has been received
-  * @retval true if new data available
-  */
-bool LoRa_HasNewData(void)
-{
-    if (new_data_flag)
+    switch (rx_state)
     {
-        new_data_flag = false;
-        return true;
+        case RX_STATE_WAIT_HEADER1:
+            if (rx_byte == PACKET_HEADER1)  // Wait for 0xAA
+            {
+                rx_state = RX_STATE_WAIT_HEADER2;
+            }
+            break;
+
+        case RX_STATE_WAIT_HEADER2:
+            if (rx_byte == PACKET_HEADER2)  // Wait for 0x55
+            {
+                rx_state = RX_STATE_RECEIVING_DATA;
+                rx_count = 0;
+            }
+            else
+            {
+                // Wrong header, go back to waiting
+                rx_state = RX_STATE_WAIT_HEADER1;
+            }
+            break;
+
+        case RX_STATE_RECEIVING_DATA:
+            // Collect 8 bytes of data
+            rx_packet[rx_count++] = rx_byte;
+
+            if (rx_count >= PACKET_DATA_SIZE)
+            {
+                rx_state = RX_STATE_WAIT_CHECKSUM;
+            }
+            break;
+
+        case RX_STATE_WAIT_CHECKSUM:
+            // Validate checksum
+            {
+                uint8_t calculated_checksum = LoRa_CalculateChecksum(rx_packet, PACKET_DATA_SIZE);
+
+                if (calculated_checksum == rx_byte)
+                {
+                    // Checksum valid! Parse packet
+                    LoRa_ParseBinaryPacket();
+                    packet_ready = true;
+                }
+                // else: Checksum invalid, discard packet
+
+                // Reset state machine for next packet
+                rx_state = RX_STATE_WAIT_HEADER1;
+                rx_count = 0;
+            }
+            break;
     }
-    return false;
+
+    // Continue receiving next byte
+    HAL_UART_Receive_IT(huart_lora, &rx_byte, 1);
+}
+
+/* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Parse binary packet (Direct memory copy)
+  * @note   Packet format (8 bytes):
+  *         Byte 0: left_x
+  *         Byte 1: left_y
+  *         Byte 2: right_x
+  *         Byte 3: right_y
+  *         Byte 4: r8
+  *         Byte 5: r1
+  *         Byte 6-7: switches (2 bytes bit-packed)
+  * @retval None
+  */
+static void LoRa_ParseBinaryPacket(void)
+{
+    // Direct copy from packet buffer
+    received_data.joy_left_x = rx_packet[0];
+    received_data.joy_left_y = rx_packet[1];
+    received_data.joy_right_x = rx_packet[2];
+    received_data.joy_right_y = rx_packet[3];
+    received_data.r8 = rx_packet[4];
+    received_data.r1 = rx_packet[5];
+
+    // Extract bit-packed switches from bytes 6-7
+    uint16_t switches = (rx_packet[7] << 8) | rx_packet[6];
+    received_data.joy_left_btn1 = (switches >> 0) & 0x01;
+    received_data.joy_left_btn2 = (switches >> 1) & 0x01;
+    received_data.joy_right_btn1 = (switches >> 2) & 0x01;
+    received_data.joy_right_btn2 = (switches >> 3) & 0x01;
+    received_data.s0 = (switches >> 4) & 0x01;
+    received_data.s1_1 = (switches >> 5) & 0x01;
+    received_data.s1_2 = (switches >> 6) & 0x01;
+    received_data.s2_1 = (switches >> 7) & 0x01;
+    received_data.s2_2 = (switches >> 8) & 0x01;
+    received_data.s4_1 = (switches >> 9) & 0x01;
+    received_data.s4_2 = (switches >> 10) & 0x01;
+    received_data.s5_1 = (switches >> 11) & 0x01;
+    received_data.s5_2 = (switches >> 12) & 0x01;
 }
