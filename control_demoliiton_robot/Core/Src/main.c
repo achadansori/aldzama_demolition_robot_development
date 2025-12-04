@@ -17,6 +17,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "lora.h"
+#include "control.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
@@ -167,6 +168,13 @@ int main(void)
   // Start listening for LoRa data
   LoRa_Receiver_StartListening();
 
+  // Initialize control system (PWM outputs)
+  Control_Init();
+
+  char *control_msg = "Control system initialized - Ready!\r\n\r\n";
+  CDC_Transmit_FS((uint8_t*)control_msg, strlen(control_msg));
+  HAL_Delay(50);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -183,35 +191,47 @@ int main(void)
       // Get received data
       if (LoRa_Receiver_GetData(&lora_data))
       {
-        // Format human-readable string (matching transmitter format)
-        char output_buffer[200];
-        int len = snprintf(output_buffer, sizeof(output_buffer),
-                           "JL:%03d,%03d,%d,%d JR:%03d,%03d,%d,%d POT:R8=%d,R1=%d SW:S0=%d,S1=%d%d,S2=%d%d,S4=%d%d,S5=%d%d\r\n",
-                           lora_data.joy_left_x,
-                           lora_data.joy_left_y,
-                           lora_data.joy_left_btn1,
-                           lora_data.joy_left_btn2,
-                           lora_data.joy_right_x,
-                           lora_data.joy_right_y,
-                           lora_data.joy_right_btn1,
-                           lora_data.joy_right_btn2,
-                           lora_data.r8,
-                           lora_data.r1,
-                           lora_data.s0,
-                           lora_data.s1_1,
-                           lora_data.s1_2,
-                           lora_data.s2_1,
-                           lora_data.s2_2,
-                           lora_data.s4_1,
-                           lora_data.s4_2,
-                           lora_data.s5_1,
-                           lora_data.s5_2);
+        // Update control outputs based on received data
+        Control_Update(&lora_data);
 
-        // Forward to USB CDC (non-blocking, will drop if busy)
-        CDC_Transmit_FS((uint8_t*)output_buffer, len);
+        // Print to USB less frequently to avoid blocking
+        // USB CDC_Transmit is SLOW and can cause delay if called too often
+        static uint8_t usb_counter = 0;
+        if (++usb_counter >= 10)  // Print USB every 10 packets (500ms) to minimize blocking
+        {
+          usb_counter = 0;
+
+          // Format human-readable string (matching transmitter format)
+          char output_buffer[200];
+          int len = snprintf(output_buffer, sizeof(output_buffer),
+                             "JL:%03d,%03d,%d,%d JR:%03d,%03d,%d,%d POT:R8=%d,R1=%d SW:S0=%d,S1=%d%d,S2=%d%d,S4=%d%d,S5=%d%d\r\n",
+                             lora_data.joy_left_x,
+                             lora_data.joy_left_y,
+                             lora_data.joy_left_btn1,
+                             lora_data.joy_left_btn2,
+                             lora_data.joy_right_x,
+                             lora_data.joy_right_y,
+                             lora_data.joy_right_btn1,
+                             lora_data.joy_right_btn2,
+                             lora_data.r8,
+                             lora_data.r1,
+                             lora_data.s0,
+                             lora_data.s1_1,
+                             lora_data.s1_2,
+                             lora_data.s2_1,
+                             lora_data.s2_2,
+                             lora_data.s4_1,
+                             lora_data.s4_2,
+                             lora_data.s5_1,
+                             lora_data.s5_2);
+
+          // Forward to USB CDC (print every 10th packet to minimize blocking delay)
+          CDC_Transmit_FS((uint8_t*)output_buffer, len);
+        }
+        // Data is still received every 50ms via LoRa realtime - just not printed every time
       }
     }
-    // No delay here - check immediately for next data
+    // No delay here - process LoRa data immediately without blocking
   }
   /* USER CODE END 3 */
 }

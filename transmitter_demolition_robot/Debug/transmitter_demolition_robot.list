@@ -1247,7 +1247,7 @@ bool LoRa_Configure(void)
 
     // REG1 - Air rate and TX power
     cmd_buffer[6] = ((LORA_AIR_RATE & 0x07) << 5) | (LORA_TX_POWER & 0x03);
- 8000a2e:	2340      	movs	r3, #64	@ 0x40
+ 8000a2e:	23a0      	movs	r3, #160	@ 0xa0
  8000a30:	72bb      	strb	r3, [r7, #10]
 
     // REG2 - Channel
@@ -1568,7 +1568,7 @@ int main(void)
 
     // Print data ke USB untuk debugging (less frequently)
     static uint8_t usb_counter = 0;
-    if (++usb_counter >= 5)  // Print USB every 5 cycles (250ms)
+    if (++usb_counter >= 5)  // Print USB every 5 cycles (500ms)
  8000bee:	4b13      	ldr	r3, [pc, #76]	@ (8000c3c <main+0x11c>)
  8000bf0:	781b      	ldrb	r3, [r3, #0]
  8000bf2:	3301      	adds	r3, #1
@@ -1589,10 +1589,10 @@ int main(void)
  8000c0a:	f000 fa63 	bl	80010d4 <USB_PrintData>
     }
 
-    // Delay 50ms for fast transmission rate (20Hz update rate)
-    // Binary format is fast so we can go back to 50ms
-    HAL_Delay(50);
- 8000c0e:	2032      	movs	r0, #50	@ 0x32
+    // Delay 100ms for stable transmission (10Hz update rate)
+    // Slower rate = more time for LoRa to process, reduces delay
+    HAL_Delay(100);
+ 8000c0e:	2064      	movs	r0, #100	@ 0x64
  8000c10:	f000 fbc4 	bl	800139c <HAL_Delay>
   {
  8000c14:	e7da      	b.n	8000bcc <main+0xac>
