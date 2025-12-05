@@ -1,0 +1,8 @@
+../Core/Src/pwm_old_hal.c:31:6:PWM_Init	1
+../Core/Src/pwm_old_hal.c:47:13:PWM_ConfigureGPIO	1
+../Core/Src/pwm_old_hal.c:91:13:PWM_ConfigureTimers	1
+../Core/Src/pwm_old_hal.c:224:6:PWM_SetDutyCycle	3
+../Core/Src/pwm_old_hal.c:245:9:PWM_GetDutyCycle	2
+../Core/Src/pwm_old_hal.c:256:6:PWM_Stop	1
+../Core/Src/pwm_old_hal.c:265:6:PWM_StopAll	2
+../Core/Src/pwm_old_hal.c:279:13:PWM_SetChannelPulse	21

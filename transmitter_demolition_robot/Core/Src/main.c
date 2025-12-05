@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "i2c.h"
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
@@ -31,6 +32,7 @@
 #include "switch.h"
 #include "usb.h"
 #include "lora.h"
+#include "oled.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,7 +53,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+// NOTE: Add this in i2c.c after enabling I2C1 in CubeMX:
+// I2C_HandleTypeDef hi2c1;
+extern I2C_HandleTypeDef hi2c1;  // I2C1 for OLED (PB6=SCL, PB7=SDA)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -97,7 +101,13 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+
+  // SLEEP mode variables
+  uint8_t sleep_mode_active = 0;
+  uint8_t sleep_transition_steps = 0;
+  #define SLEEP_TRANSITION_SPEED 10  // 10 steps = 100ms total transition (10ms per step, very responsive!)
 
   // Initialize M0 and M1 GPIO pins for LoRa (PB8=M0, PB9=M1)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -134,6 +144,17 @@ int main(void)
   USB_Print("LoRa E220 initialized - Ready to transmit\r\n");
   USB_Print("========================================\r\n");
   HAL_Delay(50);
+
+  // Initialize OLED Display (128x64 I2C on PB6/PB7)
+  // NOTE: Make sure I2C1 is enabled in CubeMX first!
+  // PB6 = I2C1_SCL, PB7 = I2C1_SDA
+  OLED_Init(&hi2c1);
+  USB_Print("OLED Display initialized\r\n");
+
+  // Show splash screen
+  OLED_ShowSplashScreen();
+  USB_Print("Splash screen shown\r\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -145,6 +166,73 @@ int main(void)
     /* USER CODE BEGIN 3 */
     // Update semua data sensor
     Var_Update();
+
+    // ========================================================================
+    // SLEEP MODE - Emergency Safety Feature
+    // When S0 = 0 (emergency button pressed), default all controls to safe position
+    // ========================================================================
+    if (tx_data.switches.s0 == 0)
+    {
+        // Emergency button pressed - enter SLEEP mode
+        if (!sleep_mode_active)
+        {
+            sleep_mode_active = 1;
+            sleep_transition_steps = 0;
+        }
+
+        // Fast smooth transition to default values (10 steps = 100ms)
+        if (sleep_transition_steps < SLEEP_TRANSITION_SPEED)
+        {
+            // Calculate transition factor (0.0 to 1.0)
+            float factor = (float)(sleep_transition_steps + 1) / (float)SLEEP_TRANSITION_SPEED;
+
+            // Smooth transition for joysticks to center (127)
+            tx_data.joystick.left_x  = tx_data.joystick.left_x  + (int16_t)((127 - tx_data.joystick.left_x) * factor);
+            tx_data.joystick.left_y  = tx_data.joystick.left_y  + (int16_t)((127 - tx_data.joystick.left_y) * factor);
+            tx_data.joystick.right_x = tx_data.joystick.right_x + (int16_t)((127 - tx_data.joystick.right_x) * factor);
+            tx_data.joystick.right_y = tx_data.joystick.right_y + (int16_t)((127 - tx_data.joystick.right_y) * factor);
+
+            // Smooth transition for R1 and R8 to 0
+            tx_data.joystick.r1 = tx_data.joystick.r1 - (uint8_t)(tx_data.joystick.r1 * factor);
+            tx_data.joystick.r8 = tx_data.joystick.r8 - (uint8_t)(tx_data.joystick.r8 * factor);
+
+            sleep_transition_steps++;
+        }
+        else
+        {
+            // Transition complete - force exact default values
+            tx_data.joystick.left_x  = 127;
+            tx_data.joystick.left_y  = 127;
+            tx_data.joystick.right_x = 127;
+            tx_data.joystick.right_y = 127;
+            tx_data.joystick.r1 = 0;
+            tx_data.joystick.r8 = 0;
+        }
+
+        // All switches to 0 (except S0 which is read from hardware)
+        tx_data.switches.joy_left_btn1  = 0;
+        tx_data.switches.joy_left_btn2  = 0;
+        tx_data.switches.joy_right_btn1 = 0;
+        tx_data.switches.joy_right_btn2 = 0;
+        tx_data.switches.s1_1 = 0;
+        tx_data.switches.s1_2 = 0;
+        tx_data.switches.s2_1 = 0;
+        tx_data.switches.s2_2 = 0;
+        tx_data.switches.s4_1 = 0;
+        tx_data.switches.s4_2 = 0;
+        tx_data.switches.s5_1 = 0;
+        tx_data.switches.s5_2 = 0;
+    }
+    else
+    {
+        // S0 = 1 (normal operation) - exit SLEEP mode
+        if (sleep_mode_active)
+        {
+            sleep_mode_active = 0;
+            sleep_transition_steps = 0;
+        }
+        // Normal operation - use actual sensor readings (already in tx_data from Var_Update)
+    }
 
     // Transmit via LoRa using BINARY format (FAST! No parsing needed)
     // Binary is much faster than CSV - only 8 bytes, direct copy
@@ -159,6 +247,19 @@ int main(void)
     {
         usb_counter = 0;
         USB_PrintData(&tx_data);
+    }
+
+    // Update OLED display with mode info and percentages (every 10 cycles = 1 second)
+    // Update immediately when entering/exiting SLEEP mode for responsive feedback
+    static uint8_t oled_counter = 0;
+    static uint8_t last_sleep_state = 0;
+
+    if (sleep_mode_active != last_sleep_state || ++oled_counter >= 10)
+    {
+        oled_counter = 0;
+        last_sleep_state = sleep_mode_active;
+        OLED_ShowModeScreen(tx_data.switches.s5_1, tx_data.switches.s5_2, (uint8_t*)&tx_data.joystick, sleep_mode_active);
+        OLED_Update();
     }
 
     // Delay 100ms for stable transmission (10Hz update rate)
