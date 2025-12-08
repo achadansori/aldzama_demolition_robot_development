@@ -9,6 +9,6 @@
 ../Core/Src/oled.c:405:6:OLED_FillRect	3
 ../Core/Src/oled.c:421:13:OLED_DrawBitmap	1
 ../Core/Src/oled.c:430:6:OLED_ShowSplashScreen	1
-../Core/Src/oled.c:464:6:OLED_ShowModeScreen	9
-../Core/Src/oled.c:599:13:OLED_WriteCommand	1
-../Core/Src/oled.c:611:13:OLED_WriteData	1
+../Core/Src/oled.c:464:6:OLED_ShowModeScreen	35
+../Core/Src/oled.c:667:13:OLED_WriteCommand	1
+../Core/Src/oled.c:679:13:OLED_WriteData	1

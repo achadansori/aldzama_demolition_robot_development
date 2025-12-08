@@ -461,7 +461,7 @@ void OLED_ShowSplashScreen(void)
   * @param  joystick_data: Pointer to joystick data array [left_x, left_y, right_x, right_y, r8, r1]
   * @retval None
   */
-void OLED_ShowModeScreen(uint8_t s5_1, uint8_t s5_2, const uint8_t* joystick_data, uint8_t sleep_mode)
+void OLED_ShowModeScreen(uint8_t s5_1, uint8_t s5_2, const uint8_t* joystick_data, uint8_t sleep_mode, uint8_t safety_ok, uint8_t hold_progress)
 {
     OLED_Clear();
 
@@ -488,11 +488,49 @@ void OLED_ShowModeScreen(uint8_t s5_1, uint8_t s5_2, const uint8_t* joystick_dat
         OLED_SetCursor(18, 24);
         OLED_WriteString("** SLEEP MODE **", FONT_SIZE_NORMAL);
 
-        OLED_SetCursor(15, 36);
-        OLED_WriteString("Emergency Active", FONT_SIZE_NORMAL);
+        if (safety_ok)
+        {
+            // Safety checks PASSED - show hold progress
+            if (hold_progress > 0)
+            {
+                // S2_1 is being held - show progress
+                char progress_text[20];
+                uint8_t percent = (hold_progress * 100) / 20;  // 20 = S2_1_HOLD_REQUIRED
+                snprintf(progress_text, sizeof(progress_text), "Holding: %d%%", percent);
 
-        OLED_SetCursor(10, 48);
-        OLED_WriteString("All Controls OFF", FONT_SIZE_NORMAL);
+                OLED_SetCursor(28, 32);
+                OLED_WriteString(progress_text, FONT_SIZE_NORMAL);
+
+                // Draw progress bar
+                uint8_t bar_width = (hold_progress * 100) / 20;  // 0-100 pixels
+                OLED_DrawRect(14, 44, 100, 10);  // Progress bar outline
+                OLED_FillRect(15, 45, bar_width, 8);  // Filled portion
+            }
+            else
+            {
+                // Ready to hold S2_1
+                OLED_SetCursor(8, 36);
+                OLED_WriteString("Controls Centered", FONT_SIZE_NORMAL);
+
+                OLED_SetCursor(15, 48);
+                OLED_WriteString("Hold S2 UP", FONT_SIZE_NORMAL);
+            }
+        }
+        else
+        {
+            // Safety checks NOT passed - show instructions
+            OLED_SetCursor(5, 32);
+            OLED_WriteString("Center Joysticks", FONT_SIZE_SMALL);
+
+            OLED_SetCursor(5, 40);
+            OLED_WriteString("Set R1 & R8 to 0", FONT_SIZE_SMALL);
+
+            OLED_SetCursor(5, 48);
+            OLED_WriteString("Release S0 Button", FONT_SIZE_SMALL);
+
+            OLED_SetCursor(5, 56);
+            OLED_WriteString("S1,S2_2,S4,S5 OFF", FONT_SIZE_SMALL);
+        }
 
         return;  // Exit early - don't show normal mode info
     }
@@ -503,39 +541,52 @@ void OLED_ShowModeScreen(uint8_t s5_1, uint8_t s5_2, const uint8_t* joystick_dat
     uint8_t right_x = joystick_data[2];
     uint8_t right_y = joystick_data[3];
 
-    // Convert to percentage (0-255 -> 0-100%)
-    uint8_t lx_pct = (left_x * 100) / 255;
-    uint8_t ly_pct = (left_y * 100) / 255;
-    uint8_t rx_pct = (right_x * 100) / 255;
-    uint8_t ry_pct = (right_y * 100) / 255;
-
     // Determine mode
     const char *mode_name;
-    char line_buffer[20];
+    char line_buffer[24];
 
     if (s5_1 == 0 && s5_2 == 0)
     {
         // Mode UPPER - Excavator
         mode_name = "MODE: UPPER";
 
-        OLED_SetCursor(20, 14);
-        OLED_WriteString((char*)mode_name, FONT_SIZE_NORMAL);
+        OLED_SetCursor(20, 8);
+        OLED_WriteString((char*)mode_name, FONT_SIZE_SMALL);
 
-        // Display cylinders with percentages
-        OLED_SetCursor(2, 28);
-        snprintf(line_buffer, sizeof(line_buffer), "CYL1 Boom:  %3d%%", rx_pct);
+        // Calculate UP/DOWN percentages for all cylinders
+        // CYL1: Not used in UPPER mode - always 0%
+
+        // CYL2: right_y < 127 = UP, right_y > 127 = DOWN
+        uint8_t c2_up = (right_y < 127) ? ((127 - right_y) * 100) / 127 : 0;
+        uint8_t c2_dn = (right_y > 127) ? ((right_y - 127) * 100) / 128 : 0;
+
+        // CYL3: left_y < 127 = DOWN, left_y > 127 = UP
+        uint8_t c3_up = (left_y > 127) ? ((left_y - 127) * 100) / 128 : 0;
+        uint8_t c3_dn = (left_y < 127) ? ((127 - left_y) * 100) / 127 : 0;
+
+        // CYL4: right_x < 127 = DOWN, right_x > 127 = UP (reversed!)
+        uint8_t c4_up = (right_x > 127) ? ((right_x - 127) * 100) / 128 : 0;
+        uint8_t c4_dn = (right_x < 127) ? ((127 - right_x) * 100) / 127 : 0;
+
+        // SLEW: left_x < 127 = CCW, left_x > 127 = CW
+        uint8_t slew_ccw = (left_x < 127) ? ((127 - left_x) * 100) / 127 : 0;
+        uint8_t slew_cw = (left_x > 127) ? ((left_x - 127) * 100) / 128 : 0;
+
+        // Display format: "CYL X UP=XX% DOWN=XX%"
+        OLED_SetCursor(0, 16);
+        snprintf(line_buffer, sizeof(line_buffer), "CYL2 UP=%d%% DOWN=%d%%", c2_up, c2_dn);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 36);
-        snprintf(line_buffer, sizeof(line_buffer), "CYL2 Stick: %3d%%", ry_pct);
+        OLED_SetCursor(0, 24);
+        snprintf(line_buffer, sizeof(line_buffer), "CYL3 UP=%d%% DOWN=%d%%", c3_up, c3_dn);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 44);
-        snprintf(line_buffer, sizeof(line_buffer), "CYL3 Bucket:%3d%%", ly_pct);
+        OLED_SetCursor(0, 32);
+        snprintf(line_buffer, sizeof(line_buffer), "CYL4 UP=%d%% DOWN=%d%%", c4_up, c4_dn);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 52);
-        snprintf(line_buffer, sizeof(line_buffer), "Slew CW/CCW:%3d%%", lx_pct);
+        OLED_SetCursor(0, 40);
+        snprintf(line_buffer, sizeof(line_buffer), "SLEW CCW=%d%% CW=%d%%", slew_ccw, slew_cw);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
     }
     else if (s5_1 == 1 && s5_2 == 0)
@@ -556,24 +607,41 @@ void OLED_ShowModeScreen(uint8_t s5_1, uint8_t s5_2, const uint8_t* joystick_dat
         // Mode LOWER - Mobility
         mode_name = "MODE: LOWER";
 
-        OLED_SetCursor(20, 14);
-        OLED_WriteString((char*)mode_name, FONT_SIZE_NORMAL);
+        OLED_SetCursor(20, 8);
+        OLED_WriteString((char*)mode_name, FONT_SIZE_SMALL);
 
-        // Display mobility controls with percentages
-        OLED_SetCursor(2, 28);
-        snprintf(line_buffer, sizeof(line_buffer), "Track Left:  %3d%%", ly_pct);
+        // Calculate Forward/Backward and Up/Down percentages
+        // TRACK LEFT: left_y < 127 = Backward, left_y > 127 = Forward
+        uint8_t tl_fwd = (left_y > 127) ? ((left_y - 127) * 100) / 128 : 0;
+        uint8_t tl_bwd = (left_y < 127) ? ((127 - left_y) * 100) / 127 : 0;
+
+        // TRACK RIGHT: right_y < 127 = Backward, right_y > 127 = Forward
+        uint8_t tr_fwd = (right_y > 127) ? ((right_y - 127) * 100) / 128 : 0;
+        uint8_t tr_bwd = (right_y < 127) ? ((127 - right_y) * 100) / 127 : 0;
+
+        // OUT LEFT: left_x < 127 = Down, left_x > 127 = Up
+        uint8_t ol_up = (left_x > 127) ? ((left_x - 127) * 100) / 128 : 0;
+        uint8_t ol_dn = (left_x < 127) ? ((127 - left_x) * 100) / 127 : 0;
+
+        // OUT RIGHT: right_x < 127 = Down, right_x > 127 = Up
+        uint8_t or_up = (right_x > 127) ? ((right_x - 127) * 100) / 128 : 0;
+        uint8_t or_dn = (right_x < 127) ? ((127 - right_x) * 100) / 127 : 0;
+
+        // Display format
+        OLED_SetCursor(0, 16);
+        snprintf(line_buffer, sizeof(line_buffer), "TRK L F=%d%% B=%d%%", tl_fwd, tl_bwd);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 36);
-        snprintf(line_buffer, sizeof(line_buffer), "Track Right: %3d%%", ry_pct);
+        OLED_SetCursor(0, 24);
+        snprintf(line_buffer, sizeof(line_buffer), "TRK R F=%d%% B=%d%%", tr_fwd, tr_bwd);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 44);
-        snprintf(line_buffer, sizeof(line_buffer), "Outrig Left: %3d%%", lx_pct);
+        OLED_SetCursor(0, 32);
+        snprintf(line_buffer, sizeof(line_buffer), "OUT L UP=%d%% DOWN=%d%%", ol_up, ol_dn);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
 
-        OLED_SetCursor(2, 52);
-        snprintf(line_buffer, sizeof(line_buffer), "Outrig Right:%3d%%", rx_pct);
+        OLED_SetCursor(0, 40);
+        snprintf(line_buffer, sizeof(line_buffer), "OUT R UP=%d%% DOWN=%d%%", or_up, or_dn);
         OLED_WriteString(line_buffer, FONT_SIZE_SMALL);
     }
     else

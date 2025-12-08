@@ -513,8 +513,8 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  80005f4:	f000 80f9 	beq.w	80007ea <Control_Update+0x26a>
         // LEFT STICK Y-AXIS: CYLINDER 3 (Bucket)
         // --------------------------------------------------------------------
-        // joy_left_y: 127→255 = Cylinder 3 OUT (PWM_5) 0→100%
-        //             127→0   = Cylinder 3 IN  (PWM_6) 0→100%
+        // joy_left_y: 127→255 = Cylinder 3 UP   (PWM_5) 0→100%
+        //             127→0   = Cylinder 3 DOWN (PWM_6) 0→100%
 
         if (lora_data->joy_left_y < (JOYSTICK_CENTER - JOYSTICK_DEADZONE))
  80005f8:	687b      	ldr	r3, [r7, #4]
@@ -522,7 +522,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  80005fc:	2b74      	cmp	r3, #116	@ 0x74
  80005fe:	d812      	bhi.n	8000626 <Control_Update+0xa6>
         {
-            // Moving DOWN (0-117) → Cylinder 3 IN
+            // Moving DOWN (0-117) → Cylinder 3 DOWN
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_left_y, true);
  8000600:	687b      	ldr	r3, [r7, #4]
  8000602:	885b      	ldrh	r3, [r3, #2]
@@ -549,7 +549,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  800062a:	2b89      	cmp	r3, #137	@ 0x89
  800062c:	d912      	bls.n	8000654 <Control_Update+0xd4>
         {
-            // Moving UP (137-255) → Cylinder 3 OUT
+            // Moving UP (137-255) → Cylinder 3 UP
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_left_y, false);
  800062e:	687b      	ldr	r3, [r7, #4]
  8000630:	885b      	ldrh	r3, [r3, #2]
@@ -653,8 +653,8 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  80006cc:	f001 fb6c 	bl	8001da8 <PWM_SetDutyCycle>
         // RIGHT STICK Y-AXIS: CYLINDER 2 (Stick)
         // --------------------------------------------------------------------
-        // joy_right_y: 127→255 = Cylinder 2 IN  (PWM_4) 0→100%
-        //              127→0   = Cylinder 2 OUT (PWM_3) 0→100%
+        // joy_right_y: 127→0   = Cylinder 2 UP   (PWM_3) 0→100%
+        //              127→255 = Cylinder 2 DOWN (PWM_4) 0→100%
 
         if (lora_data->joy_right_y < (JOYSTICK_CENTER - JOYSTICK_DEADZONE))
  80006d0:	687b      	ldr	r3, [r7, #4]
@@ -662,7 +662,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  80006d4:	2b74      	cmp	r3, #116	@ 0x74
  80006d6:	d812      	bhi.n	80006fe <Control_Update+0x17e>
         {
-            // Moving DOWN (0-117) → Cylinder 2 OUT
+            // Stick DOWN (0-117) → Cylinder 2 UP
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_right_y, true);
  80006d8:	687b      	ldr	r3, [r7, #4]
  80006da:	891b      	ldrh	r3, [r3, #8]
@@ -689,7 +689,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  8000702:	2b89      	cmp	r3, #137	@ 0x89
  8000704:	d912      	bls.n	800072c <Control_Update+0x1ac>
         {
-            // Moving UP (137-255) → Cylinder 2 IN
+            // Stick UP (137-255) → Cylinder 2 DOWN
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_right_y, false);
  8000706:	687b      	ldr	r3, [r7, #4]
  8000708:	891b      	ldrh	r3, [r3, #8]
@@ -721,10 +721,10 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  8000734:	2100      	movs	r1, #0
  8000736:	2003      	movs	r0, #3
  8000738:	f001 fb36 	bl	8001da8 <PWM_SetDutyCycle>
-        // RIGHT STICK X-AXIS: CYLINDER 1 (Boom)
+        // RIGHT STICK X-AXIS: CYLINDER 4 (Reversed mapping!)
         // --------------------------------------------------------------------
-        // joy_right_x: 127→255 = Cylinder 1 IN  (PWM_2) 0→100%
-        //              127→0   = Cylinder 1 OUT (PWM_1) 0→100%
+        // joy_right_x: 127→0   = Cylinder 4 DOWN (PWM_7) 0→100%
+        //              127→255 = Cylinder 4 UP   (PWM_8) 0→100%
 
         if (lora_data->joy_right_x < (JOYSTICK_CENTER - JOYSTICK_DEADZONE))
  800073c:	687b      	ldr	r3, [r7, #4]
@@ -732,7 +732,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  8000740:	2b74      	cmp	r3, #116	@ 0x74
  8000742:	d812      	bhi.n	800076a <Control_Update+0x1ea>
         {
-            // Moving LEFT (0-117) → Cylinder 1 OUT
+            // Stick LEFT (0-117) → Cylinder 4 DOWN
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_right_x, true);
  8000744:	687b      	ldr	r3, [r7, #4]
  8000746:	88db      	ldrh	r3, [r3, #6]
@@ -742,14 +742,14 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  800074e:	f000 f95d 	bl	8000a0c <MapJoystickToPWM>
  8000752:	4603      	mov	r3, r0
  8000754:	737b      	strb	r3, [r7, #13]
-            PWM_SetDutyCycle(PWM_1_CYLINDER_1_OUT, pwm_value);
+            PWM_SetDutyCycle(PWM_7_CYLINDER_4_OUT, pwm_value);
  8000756:	7b7b      	ldrb	r3, [r7, #13]
  8000758:	4619      	mov	r1, r3
- 800075a:	2000      	movs	r0, #0
+ 800075a:	2006      	movs	r0, #6
  800075c:	f001 fb24 	bl	8001da8 <PWM_SetDutyCycle>
-            PWM_SetDutyCycle(PWM_2_CYLINDER_1_IN, 0);
+            PWM_SetDutyCycle(PWM_8_CYLINDER_4_IN, 0);
  8000760:	2100      	movs	r1, #0
- 8000762:	2001      	movs	r0, #1
+ 8000762:	2007      	movs	r0, #7
  8000764:	f001 fb20 	bl	8001da8 <PWM_SetDutyCycle>
  8000768:	e01e      	b.n	80007a8 <Control_Update+0x228>
         }
@@ -759,7 +759,7 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  800076e:	2b89      	cmp	r3, #137	@ 0x89
  8000770:	d912      	bls.n	8000798 <Control_Update+0x218>
         {
-            // Moving RIGHT (137-255) → Cylinder 1 IN
+            // Stick RIGHT (137-255) → Cylinder 4 UP
             uint8_t pwm_value = MapJoystickToPWM(lora_data->joy_right_x, false);
  8000772:	687b      	ldr	r3, [r7, #4]
  8000774:	88db      	ldrh	r3, [r3, #6]
@@ -769,27 +769,27 @@ void Control_Update(LoRa_ReceivedData_t *lora_data)
  800077c:	f000 f946 	bl	8000a0c <MapJoystickToPWM>
  8000780:	4603      	mov	r3, r0
  8000782:	73bb      	strb	r3, [r7, #14]
-            PWM_SetDutyCycle(PWM_2_CYLINDER_1_IN, pwm_value);
+            PWM_SetDutyCycle(PWM_8_CYLINDER_4_IN, pwm_value);
  8000784:	7bbb      	ldrb	r3, [r7, #14]
  8000786:	4619      	mov	r1, r3
- 8000788:	2001      	movs	r0, #1
+ 8000788:	2007      	movs	r0, #7
  800078a:	f001 fb0d 	bl	8001da8 <PWM_SetDutyCycle>
-            PWM_SetDutyCycle(PWM_1_CYLINDER_1_OUT, 0);
+            PWM_SetDutyCycle(PWM_7_CYLINDER_4_OUT, 0);
  800078e:	2100      	movs	r1, #0
- 8000790:	2000      	movs	r0, #0
+ 8000790:	2006      	movs	r0, #6
  8000792:	f001 fb09 	bl	8001da8 <PWM_SetDutyCycle>
  8000796:	e007      	b.n	80007a8 <Control_Update+0x228>
         }
         else
         {
             // Deadzone - stop both
-            PWM_SetDutyCycle(PWM_1_CYLINDER_1_OUT, 0);
+            PWM_SetDutyCycle(PWM_7_CYLINDER_4_OUT, 0);
  8000798:	2100      	movs	r1, #0
- 800079a:	2000      	movs	r0, #0
+ 800079a:	2006      	movs	r0, #6
  800079c:	f001 fb04 	bl	8001da8 <PWM_SetDutyCycle>
-            PWM_SetDutyCycle(PWM_2_CYLINDER_1_IN, 0);
+            PWM_SetDutyCycle(PWM_8_CYLINDER_4_IN, 0);
  80007a0:	2100      	movs	r1, #0
- 80007a2:	2001      	movs	r0, #1
+ 80007a2:	2007      	movs	r0, #7
  80007a4:	f001 fb00 	bl	8001da8 <PWM_SetDutyCycle>
         }
 

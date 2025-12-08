@@ -9,6 +9,6 @@
 ../Core/Src/oled.c:405:6:OLED_FillRect	32	static
 ../Core/Src/oled.c:421:13:OLED_DrawBitmap	16	static
 ../Core/Src/oled.c:430:6:OLED_ShowSplashScreen	8	static
-../Core/Src/oled.c:464:6:OLED_ShowModeScreen	56	static
-../Core/Src/oled.c:599:13:OLED_WriteCommand	32	static
-../Core/Src/oled.c:611:13:OLED_WriteData	56	dynamic
+../Core/Src/oled.c:464:6:OLED_ShowModeScreen	104	static
+../Core/Src/oled.c:667:13:OLED_WriteCommand	32	static
+../Core/Src/oled.c:679:13:OLED_WriteData	56	dynamic
