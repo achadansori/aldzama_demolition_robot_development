@@ -43,7 +43,6 @@ This system is designed to control a demolition robot wirelessly using LoRa tech
 #### Main Features:
 - **LoRa Receiver**: Receives commands from transmitter
 - **PWM Control**: Drives motors and actuators
-- **I2S Audio**: Audio feedback for operation status
 - **USB CDC**: Monitoring and debugging
 - **SPI Interface**: Communication with additional sensors
 
@@ -51,14 +50,12 @@ This system is designed to control a demolition robot wirelessly using LoRa tech
 - `lora.c/h` - LoRa receiver driver
 - `control.c` - Motor and actuator control logic
 - `pwm.c` - PWM signal generator for motors
-- `i2s.c/h` - Audio interface
 - `spi.c/h` - SPI interface
 - `tim.c/h` - Timer for PWM and scheduling
 
 #### Used Peripherals:
 - USART - Communication with LoRa module
 - TIM (PWM Mode) - Motor control
-- I2S - Audio output
 - SPI - Sensor/actuator interface
 - USB Device (CDC) - Debugging
 - GPIO - Control signals
@@ -83,7 +80,6 @@ This system is designed to control a demolition robot wirelessly using LoRa tech
 - **LoRa Module**: EBYTE E220-900T22D (Via UART)
 - **Antenna**: 900 MHz SMA antenna
 - **Motor Driver**: PWM output (multiple channels)
-- **Audio**: I2S interface
 - **Interface**: USB Type-C, SPI peripherals
 
 ---
