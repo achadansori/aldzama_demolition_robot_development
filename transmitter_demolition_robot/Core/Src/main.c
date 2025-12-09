@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "adc.h"
+#include "adc.h"=
 #include "i2c.h"
 #include "usart.h"
 #include "usb_device.h"
@@ -110,9 +110,15 @@ int main(void)
   uint8_t safety_check_passed = 0;
   uint8_t last_s2_1_state = 0;
   uint8_t s2_1_hold_counter = 0;
+  uint8_t s1_1_hold_counter = 0;
+  uint8_t last_s0_state = 1;  // Track S0 state to detect S0 transitions (0→1)
 
   #define SLEEP_TRANSITION_SPEED 10  // 10 steps = 100ms total transition (10ms per step, very responsive!)
-  #define S2_1_HOLD_REQUIRED 20      // 20 cycles x 100ms = 2 seconds hold required
+  #define S2_1_HOLD_REQUIRED 10      // 10 cycles x 100ms = 1 second hold required
+  #define S1_1_HOLD_REQUIRED 10      // 10 cycles x 100ms = 1 second hold required
+
+  // Motor starter variables
+  uint8_t motor_active = 0;        // Motor starter state (0=OFF, 1=ON)
 
   // Safety tolerances for exiting SLEEP mode
   #define JOYSTICK_CENTER 127
@@ -178,66 +184,52 @@ int main(void)
     Var_Update();
 
     // ========================================================================
-    // SLEEP MODE - Emergency Safety Feature with Safety Interlock
+    // S0 SYSTEM ON/OFF SWITCH - Master control for entire system
     // ========================================================================
+    // S0 = 0: System OFF (power down, OLED off, no operation)
+    // S0 = 1: System ON (normal operation)
 
     if (tx_data.switches.s0 == 0)
     {
         // ====================================================================
-        // S0 = 0 (Emergency button pressed) - FORCE SLEEP MODE
+        // S0 = 0 - SYSTEM OFF (like power off or interrupt disable)
         // ====================================================================
-        if (!sleep_mode_active)
-        {
-            sleep_mode_active = 1;
-            sleep_transition_steps = 0;
-            safety_check_passed = 0;
-            s2_1_hold_counter = 0;
-        }
+        // Turn off OLED to save battery
+        OLED_Clear();
+        OLED_Update();
 
-        // Fast smooth transition to default values (10 steps = 100ms)
-        if (sleep_transition_steps < SLEEP_TRANSITION_SPEED)
-        {
-            // Calculate transition factor (0.0 to 1.0)
-            float factor = (float)(sleep_transition_steps + 1) / (float)SLEEP_TRANSITION_SPEED;
+        // Remember S0 was OFF
+        last_s0_state = 0;
 
-            // Smooth transition for joysticks to center (127)
-            tx_data.joystick.left_x  = tx_data.joystick.left_x  + (int16_t)((127 - tx_data.joystick.left_x) * factor);
-            tx_data.joystick.left_y  = tx_data.joystick.left_y  + (int16_t)((127 - tx_data.joystick.left_y) * factor);
-            tx_data.joystick.right_x = tx_data.joystick.right_x + (int16_t)((127 - tx_data.joystick.right_x) * factor);
-            tx_data.joystick.right_y = tx_data.joystick.right_y + (int16_t)((127 - tx_data.joystick.right_y) * factor);
-
-            // Smooth transition for R1 and R8 to 0
-            tx_data.joystick.r1 = tx_data.joystick.r1 - (uint8_t)(tx_data.joystick.r1 * factor);
-            tx_data.joystick.r8 = tx_data.joystick.r8 - (uint8_t)(tx_data.joystick.r8 * factor);
-
-            sleep_transition_steps++;
-        }
-        else
-        {
-            // Transition complete - force exact default values
-            tx_data.joystick.left_x  = 127;
-            tx_data.joystick.left_y  = 127;
-            tx_data.joystick.right_x = 127;
-            tx_data.joystick.right_y = 127;
-            tx_data.joystick.r1 = 0;
-            tx_data.joystick.r8 = 0;
-        }
-
-        // All switches to 0 (except S0 which is read from hardware)
-        tx_data.switches.joy_left_btn1  = 0;
-        tx_data.switches.joy_left_btn2  = 0;
-        tx_data.switches.joy_right_btn1 = 0;
-        tx_data.switches.joy_right_btn2 = 0;
-        tx_data.switches.s1_1 = 0;
-        tx_data.switches.s1_2 = 0;
-        tx_data.switches.s2_1 = 0;
-        tx_data.switches.s2_2 = 0;
-        tx_data.switches.s4_1 = 0;
-        tx_data.switches.s4_2 = 0;
-        tx_data.switches.s5_1 = 0;
-        tx_data.switches.s5_2 = 0;
+        // Skip all system logic - system is OFF
+        HAL_Delay(100);
+        continue;  // Jump back to while(1), skip everything below
     }
-    else if (sleep_mode_active)
+
+    // ========================================================================
+    // S0 = 1 - SYSTEM ON
+    // ========================================================================
+    // Check if S0 just transitioned from 0→1 (system startup/restart)
+    if (last_s0_state == 0)
+    {
+        // System just turned ON! Show splash screen (initialization)
+        OLED_ShowSplashScreen();
+        last_s0_state = 1;
+
+        // Reset all system variables (fresh start)
+        sleep_mode_active = 1;
+        sleep_transition_steps = 0;
+        safety_check_passed = 0;
+        s2_1_hold_counter = 0;
+        s1_1_hold_counter = 0;
+        motor_active = 0;
+    }
+
+    // ========================================================================
+    // SLEEP MODE - Safety Feature with Safety Interlock
+    // ========================================================================
+
+    if (sleep_mode_active)
     {
         // ====================================================================
         // S0 = 1, but still in SLEEP mode - Check Safety Interlock to Exit
@@ -288,7 +280,7 @@ int main(void)
             switches_safe = 1;
         }
 
-        // Step 2: If all safety checks pass, wait for S2_1 HOLD to exit
+        // Step 2: If all safety checks pass, wait for S2_1 HOLD to exit SLEEP mode
         if (joystick_safe && resistor_safe && switches_safe)
         {
             safety_check_passed = 1;
@@ -302,11 +294,10 @@ int main(void)
                 // Check if held long enough
                 if (s2_1_hold_counter >= S2_1_HOLD_REQUIRED)
                 {
-                    // S2_1 held for 2 seconds - EXIT SLEEP MODE
+                    // S2_1 held for 2 seconds - EXIT SLEEP MODE!
                     sleep_mode_active = 0;
                     sleep_transition_steps = 0;
-                    safety_check_passed = 0;
-                    s2_1_hold_counter = 0;
+                    s2_1_hold_counter = 0;  // Reset counter
                 }
             }
             else
@@ -357,6 +348,43 @@ int main(void)
         last_s2_1_state = tx_data.switches.s2_1;
     }
 
+    // ========================================================================
+    // MOTOR STARTER CONTROL - S1_1 HOLD (2 seconds)
+    // ========================================================================
+    // Flow: SLEEP → Safety OK → Hold S2_1 (2s) → Exit SLEEP → Hold S1_1 (2s) → Motor ON
+
+    if (!sleep_mode_active)
+    {
+        // Not in SLEEP mode - motor control allowed
+        if (tx_data.switches.s1_1 == 1)
+        {
+            // S1_1 is pressed - increment hold counter
+            s1_1_hold_counter++;
+
+            // Check if held long enough
+            if (s1_1_hold_counter >= S1_1_HOLD_REQUIRED)
+            {
+                // S1_1 held for 2 seconds - ACTIVATE MOTOR!
+                motor_active = 1;
+            }
+        }
+        else
+        {
+            // S1_1 released - IMMEDIATELY stop motor (safety!)
+            motor_active = 0;
+            s1_1_hold_counter = 0;  // Reset counter
+        }
+    }
+    else
+    {
+        // In SLEEP mode - force motor OFF
+        motor_active = 0;
+        s1_1_hold_counter = 0;
+    }
+
+    // Update motor state in tx_data before transmission
+    tx_data.switches.motor_active = motor_active;
+
     // Transmit via LoRa using BINARY format (FAST! No parsing needed)
     // Binary is much faster than CSV - only 8 bytes, direct copy
     if (LoRa_IsReady())
@@ -379,16 +407,18 @@ int main(void)
     static uint8_t last_safety_state = 0;
     static uint8_t last_hold_counter = 0;
 
+    uint8_t current_hold_progress = sleep_mode_active ? s2_1_hold_counter : s1_1_hold_counter;
+
     if (sleep_mode_active != last_sleep_state ||
         safety_check_passed != last_safety_state ||
-        s2_1_hold_counter != last_hold_counter ||
+        current_hold_progress != last_hold_counter ||
         ++oled_counter >= 10)
     {
         oled_counter = 0;
         last_sleep_state = sleep_mode_active;
         last_safety_state = safety_check_passed;
-        last_hold_counter = s2_1_hold_counter;
-        OLED_ShowModeScreen(tx_data.switches.s5_1, tx_data.switches.s5_2, (uint8_t*)&tx_data.joystick, sleep_mode_active, safety_check_passed, s2_1_hold_counter);
+        last_hold_counter = current_hold_progress;
+        OLED_ShowModeScreen(tx_data.switches.s5_1, tx_data.switches.s5_2, (uint8_t*)&tx_data.joystick, sleep_mode_active, safety_check_passed, current_hold_progress);
         OLED_Update();
     }
 
