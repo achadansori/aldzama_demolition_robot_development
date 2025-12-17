@@ -59,6 +59,10 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define CS_I2C_SPI_Pin GPIO_PIN_3
 #define CS_I2C_SPI_GPIO_Port GPIOE
+#define Lora_M0_Pin GPIO_PIN_4
+#define Lora_M0_GPIO_Port GPIOE
+#define Lora_M1_Pin GPIO_PIN_5
+#define Lora_M1_GPIO_Port GPIOE
 #define PC14_OSC32_IN_Pin GPIO_PIN_14
 #define PC14_OSC32_IN_GPIO_Port GPIOC
 #define PC15_OSC32_OUT_Pin GPIO_PIN_15
@@ -105,7 +109,11 @@ void Error_Handler(void);
 #define MEMS_INT2_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
-
+// LoRa E220 Module pins (Receiver)
+#define LORA_M0_Pin GPIO_PIN_4
+#define LORA_M0_GPIO_Port GPIOE
+#define LORA_M1_Pin GPIO_PIN_5
+#define LORA_M1_GPIO_Port GPIOE
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

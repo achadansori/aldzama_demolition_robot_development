@@ -1,4 +1,12 @@
-../Core/Src/pwm.c:54:6:PWM_Control_Init	24	static
-../Core/Src/pwm.c:115:6:PWM_Control_SetDutyCycle	32	static
-../Core/Src/pwm.c:151:6:PWM_Control_StopAll	16	static
-../Core/Src/pwm.c:165:9:PWM_Control_MapJoystick	24	static
+../Core/Src/pwm.c:37:6:PWM_Init	8	static
+../Core/Src/pwm.c:58:13:PWM_ConfigureGPIO	4	static
+../Core/Src/pwm.c:114:13:PWM_TIM1_Init	4	static
+../Core/Src/pwm.c:155:13:PWM_TIM2_Init	4	static
+../Core/Src/pwm.c:193:13:PWM_TIM3_Init	4	static
+../Core/Src/pwm.c:231:13:PWM_TIM4_Init	4	static
+../Core/Src/pwm.c:269:13:PWM_TIM8_Init	4	static
+../Core/Src/pwm.c:310:13:PWM_TIM9_Init	4	static
+../Core/Src/pwm.c:345:6:PWM_SetDutyCycle	24	static
+../Core/Src/pwm.c:401:9:PWM_GetDutyCycle	16	static
+../Core/Src/pwm.c:412:6:PWM_Stop	16	static
+../Core/Src/pwm.c:421:6:PWM_StopAll	16	static
